@@ -3,48 +3,69 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Rahasia</title>
+    <title>Dashboard Utama</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+    </style>
 </head>
-<body class="bg-gray-50 flex items-center justify-center h-screen">
+<body class="bg-slate-950 text-slate-100 flex items-center justify-center h-screen">
 
-    <div class="bg-white p-8 rounded-xl shadow-lg w-[450px] text-center">
-        <h1 class="text-3xl font-bold text-gray-800 mb-2">🎉 Selamat Datang!</h1>
-        <p class="text-gray-500 mb-6">Anda berhasil masuk ke halaman terlindungi.</p>
-
-        <div id="user-info" class="bg-blue-50 p-4 rounded-lg text-left mb-6 border border-blue-100">
-            <p class="text-sm text-gray-600"><strong>Nama:</strong> <span id="name">-</span></p>
-            <p class="text-sm text-gray-600"><strong>Email:</strong> <span id="email">-</span></p>
+    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl shadow-2xl w-[440px]">
+        
+        <!-- Header Profil -->
+        <div class="flex items-center space-x-4 mb-6 pb-6 border-b border-slate-800">
+            <div class="w-12 h-12 bg-blue-600/10 border border-blue-500/20 text-blue-400 rounded-xl flex items-center justify-center text-lg font-bold">
+                <span id="avatar-initial">U</span>
+            </div>
+            <div>
+                <h1 class="text-base font-bold text-white" id="name">Memuat Data...</h1>
+                <p class="text-xs text-slate-400">Sesi Terautentikasi (Sanctum)</p>
+            </div>
         </div>
 
-        <button onclick="logout()" class="w-full bg-red-500 text-white py-2 rounded-lg hover:bg-red-600 transition font-medium">Keluar (Logout)</button>
+        <!-- Detail Informasi -->
+        <div class="space-y-3 mb-6">
+            <div class="bg-slate-950 border border-slate-800 p-4 rounded-xl">
+                <span class="block text-[10px] uppercase font-semibold text-slate-500 tracking-wider mb-1">Email Terdaftar</span>
+                <span class="text-sm font-medium text-slate-300" id="email">-</span>
+            </div>
+            <div class="bg-emerald-950/30 border border-emerald-900/30 p-3 rounded-xl flex items-center space-x-3 text-emerald-400 text-xs font-medium">
+                <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                <span>Token Keamanan Bearer Aktif dan Terenkripsi.</span>
+            </div>
+        </div>
+
+        <!-- Tombol Keluar dengan Ikon -->
+        <button onclick="logout()" class="w-full bg-slate-800 hover:bg-red-600/20 border border-slate-700 hover:border-red-500/30 text-slate-300 hover:text-red-400 py-2.5 rounded-xl transition duration-200 font-medium text-sm flex items-center justify-center space-x-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
+            <span>Keluar Sesi (Logout)</span>
+        </button>
     </div>
 
     <script>
-        // --- CEK PENGAMANAN TOKEN SAAT HALAMAN DIBUKA ---
         const token = localStorage.getItem('auth_token');
 
         if (!token) {
-            // Kalau tidak ada token, tendang balik ke halaman login! (Anti-Bypass)
             alert("Akses ditolak! Silakan login terlebih dahulu.");
             window.location.href = "/";
         }
 
-        // Ambil data user dari API Dashboard yang dikunci Sanctum
         async function loadDashboard() {
             try {
                 const response = await axios.get('/api/dashboard', {
-                    headers: {
-                        'Authorization': `Bearer ${token}` // Kirim token pengaman
-                    }
+                    headers: { 'Authorization': `Bearer ${token}` }
                 });
 
-                // Tampilkan data user ke layar
-                document.getElementById('name').innerText = response.data.user.name;
-                document.getElementById('email').innerText = response.data.user.email;
+                const userName = response.data.user.name;
+                const userEmail = response.data.user.email;
+
+                document.getElementById('name').innerText = userName;
+                document.getElementById('email').innerText = userEmail;
+                document.getElementById('avatar-initial').innerText = userName.charAt(0).toUpperCase();
             } catch (error) {
-                // Jika token palsu / expired
                 alert("Sesi telah habis atau token tidak valid.");
                 localStorage.removeItem('auth_token');
                 window.location.href = "/";
@@ -52,12 +73,10 @@
         }
 
         function logout() {
-            // Hapus token pengaman dari browser
             localStorage.removeItem('auth_token');
             window.location.href = "/";
         }
 
-        // Jalankan fungsi load saat halaman siap
         loadDashboard();
     </script>
 </body>
