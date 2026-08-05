@@ -20,7 +20,7 @@ class AuthController extends Controller
     $request->validate([
         'name' => 'required|string|max:255',
         'email' => 'required|string|email|max:255|unique:users',
-        'password' => 'required|string|min:8|confirmed',
+        'password' => 'required|string|min:12|confirmed',
     ]);
 
     $user = User::create([
@@ -116,7 +116,15 @@ public function resetPassword(Request $request)
     $request->validate([
         'email' => 'required|email|exists:users,email',
         'otp' => 'required|numeric|digits:6',
-        'password' => 'required|string|min:8|confirmed',
+        'password' => [
+        'required',
+        'string',
+        'min:12',
+        'regex:/[A-Za-z]/', 
+        'regex:/\d/',       
+        'not_regex:/\s/', 
+        'confirmed',
+        ],
     ]);
 
     // Ambil OTP dari cache

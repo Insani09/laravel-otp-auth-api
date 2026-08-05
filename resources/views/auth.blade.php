@@ -73,7 +73,7 @@
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
                 <div class="relative">
-                    <input type="password" id="reg-password" class="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 8 karakter">
+                    <input type="password" id="reg-password" class="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 12 karakter">
                     <button type="button" onclick="togglePassword('reg-password', 'icon-pass1')" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-300 transition">
                         <svg id="icon-pass1" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
@@ -134,7 +134,7 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password Baru</label>
-                <input type="password" id="reset-password" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 8 karakter">
+                <input type="password" id="reset-password" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 12 karakter">
             </div>
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Konfirmasi Password Baru</label>
@@ -345,6 +345,18 @@
                 btn.disabled = false;
             }
         }
+
+        function passwordValid(password) {
+            return password.length >= 12 &&
+                /[A-Za-z]/.test(password) &&
+                /\d/.test(password) &&
+                !/\s/.test(password);
+
+            if (!passwordValid(password)) {
+            showError("Password minimal 12 karakter, harus mengandung huruf dan angka, serta tidak boleh memakai spasi.");
+                return;
+            }
+            }
 
         async function requestPasswordResetOtp() {
             const email = document.getElementById('forgot-email').value;
