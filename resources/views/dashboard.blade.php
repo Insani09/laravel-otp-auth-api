@@ -72,9 +72,17 @@
             }
         }
 
-        function logout() {
-            localStorage.removeItem('auth_token');
-            window.location.href = "/";
+        async function logout() {
+            try {
+                await axios.post('/api/logout', {}, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+            } catch (error) {
+                console.warn('Logout API error:', error.response?.data?.message || error.message);
+            } finally {
+                localStorage.removeItem('auth_token');
+                window.location.href = "/";
+            }
         }
 
         loadDashboard();
