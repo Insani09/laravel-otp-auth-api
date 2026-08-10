@@ -15,10 +15,12 @@ class OtpMail extends Mailable
     use Queueable, SerializesModels;
 
     public $otp;
+    public $duration;
 
-    public function __construct($otp)
+    public function __construct($otp, int $duration = 1)
     {
         $this->otp = $otp;
+        $this->duration = $duration;
     }
 
     /**

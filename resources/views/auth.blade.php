@@ -38,7 +38,15 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password</label>
-                <input type="password" id="password" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Password Anda">
+                <div class="relative">
+                    <input type="password" id="password" class="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Password Anda">
+                    <button type="button" onclick="togglePassword('password', 'icon-login-pass')" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-300 transition">
+                        <svg id="icon-login-pass" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <label class="inline-flex items-center gap-2 text-sm text-slate-300">
                 <input type="checkbox" id="remember_me" class="rounded border-slate-700 bg-slate-950 text-blue-500 focus:ring-blue-500">
@@ -47,11 +55,11 @@
             <button onclick="requestOtp()" id="btn-request" class="w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-md shadow-blue-900/20 text-sm">
                 Kirim Kode OTP
             </button>
-            <p class="text-center text-xs text-slate-400 mt-2">Pilih ini jika kamu sudah ingat password. Sistem akan verifikasi password dulu dan kemudian kirim OTP.</p>
+            <!-- <p class="text-center text-xs text-slate-400 mt-2">Pilih ini jika kamu sudah ingat password. Sistem akan verifikasi password dulu dan kemudian kirim OTP.</p> -->
             <button onclick="passwordlessLogin()" id="btn-passwordless" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-medium py-2.5 rounded-xl transition duration-200 text-sm">
                 Masuk tanpa Password
             </button>
-            <p class="text-center text-xs text-slate-400 mt-2">Gunakan ini bila kamu lupa password. Cukup masukkan email saja, OTP akan dikirim ke email.</p>
+            <!-- <p class="text-center text-xs text-slate-400 mt-2">Gunakan ini bila kamu lupa password. Cukup masukkan email saja, OTP akan dikirim ke email.</p> -->
             <div class="text-center mt-2">
                 <button type="button" onclick="showForgot()" class="text-blue-400 text-xs font-semibold hover:underline">Lupa password?</button>
             </div>
@@ -134,16 +142,36 @@
             </div>
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Password Baru</label>
-                <input type="password" id="reset-password" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 12 karakter">
+                <div class="relative">
+                    <input type="password" id="reset-password" class="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Minimal 12 karakter">
+                    <button type="button" onclick="togglePassword('reset-password', 'icon-reset-pass1')" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-300 transition">
+                        <svg id="icon-reset-pass1" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div>
                 <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Konfirmasi Password Baru</label>
-                <input type="password" id="reset-password-confirmation" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Ulangi password baru">
+                <div class="relative">
+                    <input type="password" id="reset-password-confirmation" class="w-full pl-4 pr-10 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-blue-600 focus:ring-1 focus:ring-blue-600 text-sm placeholder-slate-600 transition text-slate-200" placeholder="Ulangi password baru">
+                    <button type="button" onclick="togglePassword('reset-password-confirmation', 'icon-reset-pass2')" class="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-500 hover:text-slate-300 transition">
+                        <svg id="icon-reset-pass2" class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
             <button onclick="resetPassword()" id="btn-reset" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-md shadow-emerald-900/20 text-sm">
                 Ubah Password
             </button>
-            <div class="text-center mt-4">
+            <div class="text-center mt-4 space-y-2">
+                <p class="text-xs text-slate-400">
+                    Tidak menerima kode atau kode sudah tidak berlaku?
+                    <button type="button" onclick="resendResetOtp()" id="btn-resend-reset" class="text-blue-400 font-semibold hover:underline disabled:text-slate-500 disabled:no-underline disabled:cursor-not-allowed">Kirim Ulang Kode</button>
+                </p>
                 <button type="button" onclick="showLogin()" class="text-slate-400 text-xs font-semibold hover:underline">Kembali ke Login</button>
             </div>
         </div>
@@ -351,12 +379,7 @@
                 /[A-Za-z]/.test(password) &&
                 /\d/.test(password) &&
                 !/\s/.test(password);
-
-            if (!passwordValid(password)) {
-            showError("Password minimal 12 karakter, harus mengandung huruf dan angka, serta tidak boleh memakai spasi.");
-                return;
-            }
-            }
+        }
 
         async function requestPasswordResetOtp() {
             const email = document.getElementById('forgot-email').value;
@@ -385,6 +408,55 @@
             }
         }
 
+        let resendCooldownTimer = null;
+
+        function startResendCooldown(seconds = 60) {
+            const btn = document.getElementById('btn-resend-reset');
+            let remaining = seconds;
+            btn.disabled = true;
+            btn.innerText = `Kirim Ulang Kode (${remaining}s)`;
+
+            clearInterval(resendCooldownTimer);
+            resendCooldownTimer = setInterval(() => {
+                remaining--;
+                if (remaining <= 0) {
+                    clearInterval(resendCooldownTimer);
+                    btn.disabled = false;
+                    btn.innerText = 'Kirim Ulang Kode';
+                } else {
+                    btn.innerText = `Kirim Ulang Kode (${remaining}s)`;
+                }
+            }, 1000);
+        }
+
+        async function resendResetOtp() {
+            const email = document.getElementById('reset-email').value;
+            const btn = document.getElementById('btn-resend-reset');
+            hideError();
+
+            if (!email) {
+                showError("Email tidak ditemukan. Silakan ulangi dari awal.");
+                return;
+            }
+
+            btn.disabled = true;
+
+            try {
+                await axios.post('/api/forgot-password', { email });
+
+                // Kode lama otomatis invalid begitu kode baru dikirim —
+                // kosongkan input supaya user tidak salah pakai kode lama.
+                document.getElementById('reset-otp').value = '';
+                document.getElementById('reset-otp').focus();
+
+                showSuccess('Kode baru telah dikirim ke email Anda. Kode sebelumnya sudah tidak berlaku.');
+                startResendCooldown(60);
+            } catch (error) {
+                showError(error.response?.data?.message || "Gagal mengirim ulang kode. Coba lagi nanti.");
+                btn.disabled = false;
+            }
+        }
+
         async function resetPassword() {
             const email = document.getElementById('reset-email').value;
             const otp = document.getElementById('reset-otp').value;
@@ -400,6 +472,16 @@
 
             if (password !== password_confirmation) {
                 showError("Konfirmasi password tidak cocok.");
+                return;
+            }
+
+            if (!passwordValid(password)) {
+                showError("Password minimal 12 karakter, harus mengandung huruf dan angka, serta tidak boleh memakai spasi.");
+                return;
+            }
+
+            if (!passwordValid(password)) {
+                showError("Password minimal 12 karakter, harus mengandung huruf dan angka, serta tidak boleh memakai spasi.");
                 return;
             }
 
