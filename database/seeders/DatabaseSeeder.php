@@ -3,23 +3,34 @@
 namespace Database\Seeders;
 
 use App\Models\User;
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
 
 class DatabaseSeeder extends Seeder
 {
-    use WithoutModelEvents;
-
-    /**
-     * Seed the application's database.
-     */
     public function run(): void
     {
-        // User::factory(10)->create();
+        if (class_exists(\Database\Seeders\IndoRegionSeeder::class)) {
+            $this->call(IndoRegionSeeder::class);
+        }
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        User::query()->updateOrCreate(
+            ['email' => 'admin@example.com'],
+            [
+                'name' => 'Administrator',
+                'password' => 'AdminPass1234',
+                'role' => 'admin',
+                'negara' => 'Indonesia',
+            ]
+        );
+
+        User::query()->updateOrCreate(
+            ['email' => 'user@example.com'],
+            [
+                'name' => 'Pengguna Demo',
+                'password' => 'UserPass12345',
+                'role' => 'user',
+                'negara' => 'Indonesia',
+            ]
+        );
     }
 }

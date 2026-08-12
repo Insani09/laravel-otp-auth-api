@@ -3,29 +3,20 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Mail;
-use App\Models\LoginOtp;
-use App\Models\User;
 use App\Mail\OtpMail;
+use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
-use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    /**
-     * Berapa menit OTP login berlaku. Sesuai requirement tugas: 1 menit.
-     * (Catatan: kalau nanti dikeluhkan OTP keburu expired sebelum email
-     * sempat dibaca, ini satu-satunya angka yang perlu diubah.)
-     */
-    private const OTP_TTL_MINUTES = 1;
+    private const OTP_TTL_MINUTES = 5;
 
-    // Aturan validasi password, dipakai bareng di register() & resetPassword()
-    // supaya kekuatan password konsisten di semua alur (sebelumnya register()
-    // cuma mensyaratkan min:12 tanpa syarat huruf+angka).
     private const PASSWORD_RULES = [
         'required',
         'string',
@@ -36,144 +27,268 @@ class AuthController extends Controller
         'confirmed',
     ];
 
+    private const PASSWORD_MESSAGES = [
+        'password.required' => 'Kata sandi wajib diisi.',
+        'password.min' => 'Kata sandi minimal harus 12 karakter.',
+        'password.regex' => 'Kata sandi harus mengandung kombinasi huruf dan angka.',
+        'password.not_regex' => 'Kata sandi tidak boleh mengandung spasi.',
+        'password.confirmed' => 'Konfirmasi kata sandi tidak cocok. Silakan periksa kembali.',
+    ];
+
     public function register(Request $request)
     {
-        $request->validate([
-            'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255|unique:users',
-            'password' => self::PASSWORD_RULES,
-        ]);
+        try {
+            $validated = $request->validate([
+                'name' => 'required|string|max:255',
+                'negara' => 'required|string|max:100',
+                'provinsi' => 'nullable|string|max:100',
+                'kota' => 'nullable|string|max:100',
+                'kecamatan' => 'nullable|string|max:100',
+                'email' => 'required|string|email|max:255|unique:users,email',
+                'password' => self::PASSWORD_RULES,
+            ], array_merge([
+                'name.required' => 'Nama lengkap dan negara wajib diisi.',
+                'negara.required' => 'Nama lengkap dan negara wajib diisi.',
+                'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+                'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
+                'email.unique' => 'Email ini sudah terdaftar, silakan gunakan email lain.',
+            ], self::PASSWORD_MESSAGES));
+        } catch (ValidationException $e) {
+            throw $e;
+        }
 
         $user = User::create([
-            'name' => $request->name,
-            'email' => $request->email,
-            'password' => Hash::make($request->password),
+            'name' => $validated['name'],
+            'negara' => $validated['negara'],
+            'provinsi' => $validated['provinsi'] ?? null,
+            'kota' => $validated['kota'] ?? null,
+            'kecamatan' => $validated['kecamatan'] ?? null,
+            'email' => $validated['email'],
+            'password' => $validated['password'],
+            'role' => 'user',
         ]);
 
-        // Jangan auto-login setelah registrasi — minta user login secara eksplisit
         return response()->json([
-            'message' => 'Registrasi berhasil. Silakan login untuk mendapatkan token akses.'
+            'message' => 'Registrasi berhasil. Silakan masuk untuk melanjutkan.',
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ],
         ], 201);
     }
 
-    public function requestOtp(Request $request)
+    /**
+     * Login dengan kata sandi (Tab Password).
+     */
+    public function loginPassword(Request $request)
     {
         $request->validate([
             'email' => 'required|email',
             'password' => 'required|string',
-            'remember_me' => 'sometimes|boolean',
+            'remember' => 'sometimes|boolean',
+        ], [
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
+            'password.required' => 'Kata sandi wajib diisi.',
         ]);
 
-        // Throttle key digabung IP + email (sebelumnya cuma IP), supaya:
-        // - user lain di jaringan/WiFi yang sama tidak saling membatasi
-        // - penyerang tidak bisa spam OTP ke satu akun korban dari banyak IP
-        $throttleKey = 'otp-login:' . $request->ip() . '|' . strtolower($request->email);
+        $throttleKey = 'login-password:' . $request->ip() . '|' . strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
-                'message' => 'Terlalu banyak permintaan OTP. Coba lagi nanti.'
+                'message' => 'Terlalu banyak percobaan masuk. Silakan coba lagi nanti.',
             ], 429);
         }
-        RateLimiter::hit($throttleKey, 60);
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (!$user || !$user->password || !Hash::check($request->password, $user->password)) {
+            RateLimiter::hit($throttleKey, 60);
+
             return response()->json([
-                'message' => 'Email atau password salah.'
+                'message' => 'Email atau kata sandi salah.',
             ], 401);
         }
 
-        $this->generateAndSendOtp($user, $request->boolean('remember_me'));
+        RateLimiter::clear($throttleKey);
 
-        return response()->json([
-            'message' => 'Kredensial benar. Silakan masukkan kode OTP yang telah dikirim ke email Anda.'
-        ]);
-    }
-
-    public function requestPasswordlessOtp(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email|exists:users,email',
-            'remember_me' => 'sometimes|boolean',
-        ]);
-
-        $throttleKey = 'otp-passwordless:' . $request->ip() . '|' . strtolower($request->email);
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            return response()->json([
-                'message' => 'Terlalu banyak permintaan OTP. Coba lagi nanti.'
-            ], 429);
+        Auth::login($user, $request->boolean('remember'));
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
         }
-        RateLimiter::hit($throttleKey, 60);
 
-        $user = User::where('email', $request->email)->first();
-
-        $this->generateAndSendOtp($user, $request->boolean('remember_me'));
+        $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Kode OTP untuk masuk tanpa password telah dikirim ke email Anda.'
+            'message' => 'Login berhasil.',
+            'token' => $token,
+            'redirect' => $user->isAdmin()
+                ? route('admin.dashboard')
+                : route('dashboard'),
+            'user' => $user->only(['id', 'name', 'email', 'role']),
         ]);
     }
 
     /**
-     * Logika bersama untuk membuat & mengirim OTP login.
-     * Sebelumnya method ini diduplikasi persis di requestOtp() dan
-     * requestPasswordlessOtp() — digabung supaya sekali ubah (mis. TTL,
-     * hashing) langsung berlaku di kedua alur.
-     *
-     * OTP disimpan dalam bentuk HASH (bukan plaintext) di kolom `code`,
-     * supaya kalau database bocor, kode OTP aktif tidak langsung terbaca.
+     * Kirim OTP 6 digit (Tab OTP) — berlaku 5 menit.
      */
-    private function generateAndSendOtp(User $user, bool $rememberMe): void
+    public function sendOtp(Request $request)
     {
-        LoginOtp::where('user_id', $user->id)
-            ->whereNull('used_at')
-            ->where('expires_at', '>=', now())
-            ->delete();
+        $request->validate([
+            'email' => 'required|email',
+        ], [
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
+        ]);
+
+        $throttleKey = 'otp-send:' . $request->ip() . '|' . strtolower($request->email);
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            return response()->json([
+                'message' => 'Terlalu banyak permintaan OTP. Silakan coba lagi nanti.',
+            ], 429);
+        }
+        RateLimiter::hit($throttleKey, 60);
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            return response()->json([
+                'message' => 'Email belum terdaftar. Silakan buat akun terlebih dahulu.',
+            ], 404);
+        }
 
         $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
-        LoginOtp::create([
-            'user_id' => $user->id,
-            'code' => $this->hashOtp($otp),
-            'remember_me' => $rememberMe,
-            'expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES),
-        ]);
+        $user->forceFill([
+            'otp_code' => $otp,
+            'otp_expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES),
+        ])->save();
 
-        Mail::to($user->email)->send(new OtpMail($otp, self::OTP_TTL_MINUTES));
+        try {
+            Mail::to($user->email)->send(new OtpMail($otp, self::OTP_TTL_MINUTES));
+        } catch (\Throwable $e) {
+            // Simulasi pengiriman: OTP tetap tersimpan; dikembalikan di non-production untuk uji.
+        }
+
+        $payload = [
+            'message' => 'Kode OTP telah dikirim ke email Anda. Berlaku selama ' . self::OTP_TTL_MINUTES . ' menit.',
+        ];
+
+        if (!app()->environment('production')) {
+            $payload['otp_debug'] = $otp;
+        }
+
+        return response()->json($payload);
     }
 
-    private function hashOtp(string $otp): string
+    /**
+     * Verifikasi OTP lalu masuk (session + token).
+     */
+    public function verifyOtp(Request $request)
     {
-        // HMAC dengan APP_KEY supaya tidak bisa di-brute-force offline
-        // lewat rainbow table sederhana (beda dari sekadar sha256 polos).
-        return hash_hmac('sha256', $otp, config('app.key'));
+        $request->validate([
+            'email' => 'required|email',
+            'otp' => 'required|digits:6',
+            'remember' => 'sometimes|boolean',
+        ], [
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
+            'otp.required' => 'Kode OTP wajib diisi.',
+            'otp.digits' => 'Kode OTP harus berupa 6 digit angka.',
+        ]);
+
+        $throttleKey = 'otp-verify:' . strtolower($request->email);
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            return response()->json([
+                'message' => 'Terlalu banyak percobaan OTP. Silakan coba lagi nanti.',
+            ], 429);
+        }
+
+        $user = User::where('email', $request->email)->first();
+
+        if (!$user) {
+            RateLimiter::hit($throttleKey, 300);
+
+            return response()->json([
+                'message' => 'Email tidak ditemukan.',
+            ], 404);
+        }
+
+        $otpValid = $user->otp_code
+            && hash_equals((string) $user->otp_code, (string) $request->otp)
+            && $user->otp_expires_at
+            && $user->otp_expires_at->isFuture();
+
+        if (!$otpValid) {
+            RateLimiter::hit($throttleKey, 300);
+
+            return response()->json([
+                'message' => 'Kode OTP tidak valid atau telah kedaluwarsa.',
+            ], 401);
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        $user->forceFill([
+            'otp_code' => null,
+            'otp_expires_at' => null,
+        ])->save();
+
+        Auth::login($user, $request->boolean('remember'));
+        if ($request->hasSession()) {
+            $request->session()->regenerate();
+        }
+
+        $token = $user->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Login berhasil.',
+            'token' => $token,
+            'redirect' => $user->isAdmin()
+                ? route('admin.dashboard')
+                : route('dashboard'),
+            'user' => $user->only(['id', 'name', 'email', 'role']),
+        ]);
     }
 
     public function forgotPassword(Request $request)
     {
-        $request->validate(['email' => 'required|email|exists:users,email']);
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+        ], [
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.exists' => 'Email tidak ditemukan di sistem kami.',
+        ]);
 
-        $throttleKey = 'otp-reset-request:' . $request->email;
+        $throttleKey = 'otp-reset-request:' . strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 3)) {
             return response()->json([
-                'message' => 'Terlalu banyak permintaan reset password. Coba lagi nanti.'
+                'message' => 'Terlalu banyak permintaan reset kata sandi. Silakan coba lagi nanti.',
             ], 429);
         }
         RateLimiter::hit($throttleKey, 900);
 
-        // Hapus OTP reset lama sebelum membuat yang baru
         Cache::forget('otp_reset_' . $request->email);
 
-        $otp = (string) random_int(100000, 999999);
+        $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        Cache::put('otp_reset_' . $request->email, hash_hmac('sha256', $otp, config('app.key')), now()->addMinutes(15));
 
-        // Simpan hash-nya saja di cache, bukan OTP plaintext.
-        Cache::put('otp_reset_' . $request->email, $this->hashOtp($otp), now()->addMinutes(15));
+        try {
+            Mail::to($request->email)->send(new OtpMail($otp, 15));
+        } catch (\Throwable $e) {
+            // biarkan lanjut
+        }
 
-        Mail::to($request->email)->send(new OtpMail($otp, 15));
+        $payload = [
+            'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda.',
+        ];
 
-        return response()->json([
-            'message' => 'Kode OTP untuk reset password telah dikirim ke email Anda.'
-        ]);
+        if (!app()->environment('production')) {
+            $payload['otp_debug'] = $otp;
+        }
+
+        return response()->json($payload);
     }
 
     public function resetPassword(Request $request)
@@ -182,126 +297,62 @@ class AuthController extends Controller
             'email' => 'required|email|exists:users,email',
             'otp' => 'required|numeric|digits:6',
             'password' => self::PASSWORD_RULES,
-        ]);
+        ], array_merge([
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.exists' => 'Email tidak ditemukan di sistem kami.',
+            'otp.required' => 'Kode OTP wajib diisi.',
+            'otp.digits' => 'Kode OTP harus berupa 6 digit angka.',
+        ], self::PASSWORD_MESSAGES));
 
-        $throttleKey = 'otp-reset-verify:' . $request->email;
+        $throttleKey = 'otp-reset-verify:' . strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
-                'message' => 'Terlalu banyak percobaan OTP. Coba lagi nanti.'
+                'message' => 'Terlalu banyak percobaan OTP. Silakan coba lagi nanti.',
             ], 429);
         }
 
-        // Ambil hash OTP dari cache, lalu bandingkan dengan hash input user
         $cachedHash = Cache::get('otp_reset_' . $request->email);
+        $inputHash = hash_hmac('sha256', (string) $request->otp, config('app.key'));
 
-        if (!$cachedHash || !hash_equals($cachedHash, $this->hashOtp((string) $request->otp))) {
+        if (!$cachedHash || !hash_equals($cachedHash, $inputHash)) {
             RateLimiter::hit($throttleKey, 900);
+
             return response()->json([
-                'message' => 'Kode OTP tidak valid atau sudah kedaluwarsa.'
+                'message' => 'Kode OTP tidak valid atau sudah kedaluwarsa.',
             ], 400);
         }
 
         RateLimiter::clear($throttleKey);
 
-        // Update password user
         $user = User::where('email', $request->email)->first();
-        $user->password = Hash::make($request->password);
+        $user->password = $request->password;
         $user->save();
 
-        // Hapus OTP dari cache setelah berhasil digunakan
         Cache::forget('otp_reset_' . $request->email);
-
-        // Revoke semua token lama agar user harus login ulang dengan password baru
         $user->tokens()->delete();
 
         return response()->json([
-            'message' => 'Password berhasil diubah. Silakan login kembali.'
-        ]);
-    }
-
-    public function verifyOtp(Request $request)
-    {
-        $request->validate([
-            'email' => 'required|email',
-            'otp' => 'required|digits:6'
-        ]);
-
-        $email = $request->email;
-        $otp = $request->otp;
-
-        // BUG UTAMA sebelumnya: rate limit di sini cuma di-hit(), tidak
-        // pernah dicek tooManyAttempts() — jadi brute-force 6 digit OTP
-        // tidak pernah benar-benar diblokir. Ditambahkan pengecekan di sini.
-        $throttleKey = 'otp-verify:' . strtolower($email);
-        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
-            return response()->json([
-                'message' => 'Terlalu banyak percobaan OTP. Coba lagi nanti.'
-            ], 429);
-        }
-
-        $user = User::where('email', $email)->first();
-        if (!$user) {
-            RateLimiter::hit($throttleKey, 900);
-            return response()->json([
-                'message' => 'Email tidak ditemukan.'
-            ], 404);
-        }
-
-        $loginOtp = LoginOtp::where('user_id', $user->id)
-            ->where('code', $this->hashOtp($otp))
-            ->whereNull('used_at')
-            ->where('expires_at', '>=', now())
-            ->latest()
-            ->first();
-
-        if (!$loginOtp) {
-            RateLimiter::hit($throttleKey, 900);
-            return response()->json([
-                'message' => 'Kode OTP tidak valid atau telah kedaluwarsa.'
-            ], 401);
-        }
-
-        RateLimiter::clear($throttleKey);
-        $loginOtp->update(['used_at' => now()]);
-
-        $expiresAt = $loginOtp->remember_me
-            ? now()->addDays(30)
-            : now()->addHours(8);
-
-        $token = $user->createToken('auth_token', ['*'], $expiresAt)->plainTextToken;
-
-        $this->cleanupExpiredTokens();
-
-        return response()->json([
-            'message' => 'Login berhasil.',
-            'token' => $token,
-            'token_type' => 'Bearer',
-            'expires_at' => $expiresAt->toDateTimeString(),
+            'message' => 'Kata sandi berhasil diubah. Silakan masuk kembali.',
         ]);
     }
 
     public function logout(Request $request)
     {
-        $request->user()->currentAccessToken()->delete();
-
-        return response()->json([
-            'message' => 'Logout berhasil.'
-        ]);
-    }
-
-    private function cleanupExpiredTokens(): void
-    {
-        if (app()->runningInConsole()) {
-            return;
+        if ($request->user()) {
+            $token = $request->user()->currentAccessToken();
+            if ($token && method_exists($token, 'delete')) {
+                $token->delete();
+            }
         }
 
-        \Laravel\Sanctum\PersonalAccessToken::whereNotNull('expires_at')
-            ->where('expires_at', '<', Carbon::now())
-            ->delete();
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
-        LoginOtp::whereNotNull('expires_at')
-            ->where('expires_at', '<', Carbon::now())
-            ->whereNull('used_at')
-            ->delete();
+        if ($request->expectsJson()) {
+            return response()->json(['message' => 'Logout berhasil.']);
+        }
+
+        return redirect()->route('login');
     }
 }
