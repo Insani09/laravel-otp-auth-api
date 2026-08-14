@@ -15,7 +15,9 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    private const OTP_TTL_MINUTES = 5;
+    // Masa berlaku kode OTP, dalam menit.
+    private const OTP_TTL_MINUTES = 1;
+    private const RESET_OTP_TTL_MINUTES = 1;
 
     private const PASSWORD_RULES = [
         'required',
@@ -53,8 +55,8 @@ class AuthController extends Controller
                 'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
                 'email.unique' => 'Email ini sudah terdaftar, silakan gunakan email lain.',
             ], self::PASSWORD_MESSAGES));
-        } catch (ValidationException $e) {
-            throw $e;
+        } catch (ValidationException $exception) {
+            throw $exception;
         }
 
         $user = User::create([
@@ -79,7 +81,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Login dengan kata sandi (Tab Password).
+     * Login dengan kata sandi.
      */
     public function loginPassword(Request $request)
     {
@@ -102,7 +104,7 @@ class AuthController extends Controller
 
         $user = User::where('email', $request->email)->first();
 
-        if (!$user || !$user->password || !Hash::check($request->password, $user->password)) {
+        if (! $user || ! $user->password || ! Hash::check($request->password, $user->password)) {
             RateLimiter::hit($throttleKey, 60);
 
             return response()->json([
@@ -130,7 +132,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Kirim OTP 6 digit (Tab OTP) — berlaku 5 menit.
+     * Kirim OTP enam digit untuk login. OTP berlaku selama satu menit.
      */
     public function sendOtp(Request $request)
     {
@@ -147,11 +149,11 @@ class AuthController extends Controller
                 'message' => 'Terlalu banyak permintaan OTP. Silakan coba lagi nanti.',
             ], 429);
         }
+
         RateLimiter::hit($throttleKey, 60);
 
         $user = User::where('email', $request->email)->first();
-
-        if (!$user) {
+        if (! $user) {
             return response()->json([
                 'message' => 'Email belum terdaftar. Silakan buat akun terlebih dahulu.',
             ], 404);
@@ -165,16 +167,18 @@ class AuthController extends Controller
         ])->save();
 
         try {
-            Mail::to($user->email)->send(new OtpMail($otp, self::OTP_TTL_MINUTES));
-        } catch (\Throwable $e) {
-            // Simulasi pengiriman: OTP tetap tersimpan; dikembalikan di non-production untuk uji.
+            Mail::to($user->email)->send(
+                new OtpMail($otp, self::OTP_TTL_MINUTES)
+            );
+        } catch (\Throwable $exception) {
+            // Untuk environment non-production, OTP masih dapat diuji dari payload otp_debug.
         }
 
         $payload = [
             'message' => 'Kode OTP telah dikirim ke email Anda. Berlaku selama ' . self::OTP_TTL_MINUTES . ' menit.',
         ];
 
-        if (!app()->environment('production')) {
+        if (! app()->environment('production')) {
             $payload['otp_debug'] = $otp;
         }
 
@@ -182,7 +186,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Verifikasi OTP lalu masuk (session + token).
+     * Verifikasi OTP lalu login menggunakan session dan token.
      */
     public function verifyOtp(Request $request)
     {
@@ -205,8 +209,7 @@ class AuthController extends Controller
         }
 
         $user = User::where('email', $request->email)->first();
-
-        if (!$user) {
+        if (! $user) {
             RateLimiter::hit($throttleKey, 300);
 
             return response()->json([
@@ -219,7 +222,7 @@ class AuthController extends Controller
             && $user->otp_expires_at
             && $user->otp_expires_at->isFuture();
 
-        if (!$otpValid) {
+        if (! $otpValid) {
             RateLimiter::hit($throttleKey, 300);
 
             return response()->json([
@@ -251,6 +254,9 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Mengirim OTP untuk reset password. OTP reset berlaku satu menit.
+     */
     public function forgotPassword(Request $request)
     {
         $request->validate([
@@ -267,24 +273,32 @@ class AuthController extends Controller
                 'message' => 'Terlalu banyak permintaan reset kata sandi. Silakan coba lagi nanti.',
             ], 429);
         }
+
+        // Pembatasan request reset tetap 15 menit; ini berbeda dari masa berlaku OTP.
         RateLimiter::hit($throttleKey, 900);
 
         Cache::forget('otp_reset_' . $request->email);
 
         $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
-        Cache::put('otp_reset_' . $request->email, hash_hmac('sha256', $otp, config('app.key')), now()->addMinutes(15));
+        Cache::put(
+            'otp_reset_' . $request->email,
+            hash_hmac('sha256', $otp, config('app.key')),
+            now()->addMinutes(self::RESET_OTP_TTL_MINUTES)
+        );
 
         try {
-            Mail::to($request->email)->send(new OtpMail($otp, 15));
-        } catch (\Throwable $e) {
-            // biarkan lanjut
+            Mail::to($request->email)->send(
+                new OtpMail($otp, self::RESET_OTP_TTL_MINUTES)
+            );
+        } catch (\Throwable $exception) {
+            // Pada non-production, kode tetap tersedia dalam payload otp_debug untuk pengujian.
         }
 
         $payload = [
-            'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda.',
+            'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda. Berlaku selama ' . self::RESET_OTP_TTL_MINUTES . ' menit.',
         ];
 
-        if (!app()->environment('production')) {
+        if (! app()->environment('production')) {
             $payload['otp_debug'] = $otp;
         }
 
@@ -314,7 +328,7 @@ class AuthController extends Controller
         $cachedHash = Cache::get('otp_reset_' . $request->email);
         $inputHash = hash_hmac('sha256', (string) $request->otp, config('app.key'));
 
-        if (!$cachedHash || !hash_equals($cachedHash, $inputHash)) {
+        if (! $cachedHash || ! hash_equals($cachedHash, $inputHash)) {
             RateLimiter::hit($throttleKey, 900);
 
             return response()->json([
