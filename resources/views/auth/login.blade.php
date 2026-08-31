@@ -97,13 +97,19 @@
                     </div>
                     <div>
                         <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1.5">Kode OTP (6 digit)</label>
-                        <input type="text" id="otp-code" maxlength="6" inputmode="numeric" pattern="[0-9]*" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm text-center tracking-[0.4em] font-bold text-slate-200 placeholder-slate-600 transition" placeholder="••••••">
+                        <input type="text" id="otp-code" maxlength="6" inputmode="numeric" pattern="[0-9]*" class="w-full px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 text-sm text-center tracking-[0.4em] font-bold text-slate-200 placeholder-slate-600 transition" placeholder="••••••" autocomplete="one-time-code" aria-describedby="otp-countdown">
+                        <p id="otp-timer" class="mt-2 text-center text-xs font-semibold text-amber-400" role="status" aria-live="polite">
+                            Kode berlaku selama <span id="otp-countdown">01:00</span>
+                        </p>
                     </div>
                     <button type="button" onclick="verifyLoginOtp()" id="btn-verify-otp" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-md shadow-emerald-900/20 text-sm">
                         Verifikasi & Masuk
                     </button>
+                    <button type="button" onclick="sendLoginOtp()" id="btn-resend-otp" class="hidden w-full bg-blue-600 hover:bg-blue-500 text-white font-medium py-2.5 rounded-xl transition duration-200 shadow-md shadow-blue-900/20 text-sm">
+                        Kirim Ulang Kode
+                    </button>
                     <button type="button" onclick="backToOtpStep1()" class="w-full text-sm text-slate-400 hover:text-slate-200 transition font-medium">
-                        Kembali / ganti email
+                        Kembali
                     </button>
                 </div>
             </div>
@@ -193,6 +199,7 @@
             reset: "{{ route('auth.reset') }}",
         };
         let otpUserEmail = '';
+        let otpTimerInterval = null;
         let regionApi = null;
 
         function togglePassword(inputId, iconId) {
@@ -228,6 +235,55 @@
 
         function showLoginAlert(message, type) {
             setAlert('login-alert', message, type || 'error');
+        }
+
+        function setOtpInputError(hasError) {
+            const input = $('#otp-code');
+            input.toggleClass('border-red-500 focus:border-red-500 focus:ring-red-500 bg-red-950/30', hasError);
+            input.toggleClass('border-slate-800 focus:border-emerald-500 focus:ring-emerald-500 bg-slate-950', !hasError);
+            input.attr('aria-invalid', hasError ? 'true' : 'false');
+        }
+
+        function stopOtpTimer() {
+            if (otpTimerInterval) {
+                clearInterval(otpTimerInterval);
+                otpTimerInterval = null;
+            }
+        }
+
+        function startOtpTimer(durationSeconds) {
+            stopOtpTimer();
+
+            let remaining = Number(durationSeconds) || 60;
+            const countdown = $('#otp-countdown');
+            const timer = $('#otp-timer');
+            const verifyButton = $('#btn-verify-otp');
+            const resendButton = $('#btn-resend-otp');
+
+            const render = function () {
+                const minutes = String(Math.floor(remaining / 60)).padStart(2, '0');
+                const seconds = String(remaining % 60).padStart(2, '0');
+                countdown.text(`${minutes}:${seconds}`);
+            };
+
+            timer.removeClass('text-red-400').addClass('text-amber-400');
+            verifyButton.removeClass('hidden').prop('disabled', false).text('Verifikasi & Masuk');
+            resendButton.addClass('hidden').prop('disabled', true).text('Kirim Ulang Kode');
+            render();
+
+            otpTimerInterval = setInterval(function () {
+                remaining -= 1;
+                render();
+
+                if (remaining <= 0) {
+                    stopOtpTimer();
+                    timer.removeClass('text-amber-400').addClass('text-red-400');
+                    verifyButton.addClass('hidden').prop('disabled', true).text('Kode Kedaluwarsa');
+                    resendButton.removeClass('hidden').prop('disabled', false).text('Kirim Ulang Kode');
+                    setOtpInputError(true);
+                    showLoginAlert('Kode OTP telah kedaluwarsa. Silakan minta kode baru.');
+                }
+            }, 1000);
         }
 
         function showRegisterAlert(message, type) {
@@ -353,6 +409,8 @@
         function sendLoginOtp() {
             const email = $('#otp-email').val().trim();
             const btn = $('#btn-send-otp');
+            const resendBtn = $('#btn-resend-otp');
+            const activeBtn = $('#otp-step-2').hasClass('hidden') ? btn : resendBtn;
             showLoginAlert('');
 
             if (!email) {
@@ -360,7 +418,7 @@
                 return;
             }
 
-            btn.prop('disabled', true).text('Mengirim...');
+            activeBtn.prop('disabled', true).text('Mengirim...');
 
             $.ajax({
                 url: authRoutes.otpSend,
@@ -371,24 +429,34 @@
                     $('#lbl-otp-email').text(email);
                     $('#otp-step-1').addClass('hidden');
                     $('#otp-step-2').removeClass('hidden');
+                    $('#otp-code').val('');
+                    setOtpInputError(false);
+                    startOtpTimer(60);
                     let msg = res.message || 'Kode OTP telah dikirim.';
                     if (res.otp_debug) {
                         msg += ' (Debug: ' + res.otp_debug + ')';
                     }
                     showLoginAlert(msg, 'success');
                     btn.prop('disabled', false).text('Kirim Kode OTP');
+                    resendBtn.prop('disabled', true).text('Kirim Ulang Kode');
                 },
                 error: function (xhr) {
                     showLoginAlert(getApiErrorMessage(xhr));
-                    btn.prop('disabled', false).text('Kirim Kode OTP');
+                    activeBtn.prop('disabled', false).text(activeBtn.is(resendBtn) ? 'Kirim Ulang Kode' : 'Kirim Kode OTP');
                 }
             });
         }
 
         function backToOtpStep1() {
+            stopOtpTimer();
             $('#otp-step-2').addClass('hidden');
             $('#otp-step-1').removeClass('hidden');
             $('#otp-code').val('');
+            setOtpInputError(false);
+            $('#otp-countdown').text('01:00');
+            $('#otp-timer').removeClass('text-red-400').addClass('text-amber-400');
+            $('#btn-verify-otp').removeClass('hidden').prop('disabled', false).text('Verifikasi & Masuk');
+            $('#btn-resend-otp').addClass('hidden').prop('disabled', true).text('Kirim Ulang Kode');
             showLoginAlert('');
         }
 
@@ -398,9 +466,12 @@
             showLoginAlert('');
 
             if (!/^\d{6}$/.test(otp)) {
+                setOtpInputError(true);
                 showLoginAlert('Kode OTP harus berupa 6 digit angka.');
                 return;
             }
+
+            setOtpInputError(false);
 
             btn.prop('disabled', true).text('Memverifikasi...');
 
@@ -418,11 +489,16 @@
                     window.location.assign(res.redirect || "{{ route('dashboard') }}");
                 },
                 error: function (xhr) {
+                    setOtpInputError(true);
                     showLoginAlert(getApiErrorMessage(xhr));
                     btn.prop('disabled', false).text('Verifikasi & Masuk');
                 }
             });
         }
+
+        $(document).on('input', '#otp-code', function () {
+            setOtpInputError(false);
+        });
 
         function requestPasswordResetOtp() {
             const email = $('#forgot-email').val().trim();

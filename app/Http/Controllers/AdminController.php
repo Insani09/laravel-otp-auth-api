@@ -28,10 +28,17 @@ class AdminController extends Controller
 
         if ($search = $request->string('search')->trim()->toString()) {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%")
-                    ->orWhere('negara', 'like', "%{$search}%")
-                    ->orWhere('kota', 'like', "%{$search}%");
+                $like = "%{$search}%";
+
+                $q->where('id', 'like', $like)
+                    ->orWhere('name', 'like', $like)
+                    ->orWhere('email', 'like', $like)
+                    ->orWhere('role', 'like', $like)
+                    ->orWhere('negara', 'like', $like)
+                    ->orWhere('provinsi', 'like', $like)
+                    ->orWhere('kota', 'like', $like)
+                    ->orWhere('kecamatan', 'like', $like)
+                    ->orWhereDate('created_at', $search);
             });
         }
 
@@ -40,6 +47,13 @@ class AdminController extends Controller
                 $query->where('role', $role);
             }
         }
+
+        $statsQuery = clone $query;
+        $filteredStats = [
+            'total' => (clone $statsQuery)->count(),
+            'admin' => (clone $statsQuery)->where('role', 'admin')->count(),
+            'user' => (clone $statsQuery)->where('role', 'user')->count(),
+        ];
 
         $perPage = (int) $request->input('per_page', 10);
         $perPage = in_array($perPage, [5, 10, 25, 50], true) ? $perPage : 10;
@@ -62,7 +76,10 @@ class AdminController extends Controller
             ];
         });
 
-        return response()->json($users);
+        return response()->json(array_merge(
+            $users->toArray(),
+            ['stats' => $filteredStats]
+        ));
     }
 
     public function store(Request $request)

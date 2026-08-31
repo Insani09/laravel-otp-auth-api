@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\ValidationException;
@@ -171,18 +172,26 @@ class AuthController extends Controller
                 new OtpMail($otp, self::OTP_TTL_MINUTES)
             );
         } catch (\Throwable $exception) {
-            // Untuk environment non-production, OTP masih dapat diuji dari payload otp_debug.
+            $user->forceFill([
+                'otp_code' => null,
+                'otp_expires_at' => null,
+            ])->save();
+
+            Log::error('Gagal mengirim OTP login.', [
+                'user_id' => $user->id,
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'OTP gagal dikirim. Silakan coba lagi.',
+            ], 500);
         }
 
-        $payload = [
-            'message' => 'Kode OTP telah dikirim ke email Anda. Berlaku selama ' . self::OTP_TTL_MINUTES . ' menit.',
-        ];
-
-        if (! app()->environment('production')) {
-            $payload['otp_debug'] = $otp;
-        }
-
-        return response()->json($payload);
+        return response()->json([
+            'message' => 'Kode OTP telah dikirim ke email Anda. Berlaku selama '
+                . self::OTP_TTL_MINUTES
+                . ' menit.',
+        ]);
     }
 
     /**
@@ -291,18 +300,23 @@ class AuthController extends Controller
                 new OtpMail($otp, self::RESET_OTP_TTL_MINUTES)
             );
         } catch (\Throwable $exception) {
-            // Pada non-production, kode tetap tersedia dalam payload otp_debug untuk pengujian.
+            Cache::forget('otp_reset_' . $request->email);
+
+            Log::error('Gagal mengirim OTP reset password.', [
+                'email' => $request->email,
+                'exception' => $exception->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'OTP reset password gagal dikirim. Silakan coba lagi.',
+            ], 500);
         }
 
-        $payload = [
-            'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda. Berlaku selama ' . self::RESET_OTP_TTL_MINUTES . ' menit.',
-        ];
-
-        if (! app()->environment('production')) {
-            $payload['otp_debug'] = $otp;
-        }
-
-        return response()->json($payload);
+        return response()->json([
+            'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda. Berlaku selama '
+                . self::RESET_OTP_TTL_MINUTES
+                . ' menit.',
+        ]);
     }
 
     public function resetPassword(Request $request)

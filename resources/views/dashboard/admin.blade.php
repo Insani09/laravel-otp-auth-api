@@ -48,7 +48,7 @@
 
             <div class="mt-8 flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
                 <div class="flex flex-col sm:flex-row gap-3 flex-1">
-                    <input type="search" id="filter-search" placeholder="Cari nama, email, kota..." class="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-600">
+                    <input type="search" id="filter-search" placeholder="Cari ID, nama, email, role, negara, provinsi, kota, kecamatan..." class="flex-1 px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-600 focus:outline-none focus:border-blue-600">
                     <select id="filter-role" class="px-4 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-sm text-slate-200">
                         <option value="">Semua Role</option>
                         <option value="admin">Admin</option>
@@ -232,7 +232,11 @@
         }
 
         function updateStatsFromRows(res) {
-            // Stats utama dari server saat load halaman; refresh ringan via recount opsional
+            const stats = res.stats || {};
+
+            $('#stat-total').text(stats.total ?? 0);
+            $('#stat-admin').text(stats.admin ?? 0);
+            $('#stat-user').text(stats.user ?? 0);
         }
 
         function renderTable(res) {

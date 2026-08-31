@@ -140,6 +140,16 @@
         </div>
     </div>
 
+    <div
+        id="profile-user-data"
+        hidden
+        data-api-base="{{ url('/api') }}"
+        data-negara="{{ e($user->negara ?? '') }}"
+        data-provinsi="{{ e($user->provinsi ?? '') }}"
+        data-kota="{{ e($user->kota ?? '') }}"
+        data-kecamatan="{{ e($user->kecamatan ?? '') }}"
+    ></div>
+
     @include('partials.region-cascading')
 
     <script>
@@ -150,7 +160,13 @@
             }
         });
 
-        const currentNegara = @json($user->negara);
+        const profileUserData = document.getElementById('profile-user-data');
+        const currentNegara = profileUserData?.dataset.negara || '';
+        const currentProvinsi = profileUserData?.dataset.provinsi || '';
+        const currentKota = profileUserData?.dataset.kota || '';
+        const currentKecamatan = profileUserData?.dataset.kecamatan || '';
+        const apiBase = profileUserData?.dataset.apiBase || '/api';
+
         let regionApi = null;
         let editReady = false;
 
@@ -168,14 +184,17 @@
                 regionApi = window.initRegionCascading({
                     prefix: 'prof-',
                     hiddenPrefix: 'prof-',
-                    apiBase: "{{ url('/api') }}"
+                    apiBase: apiBase,
+                    onError: function (message) {
+                        showAlert(message);
+                    }
                 });
                 if (currentNegara && regionApi) {
                     setTimeout(function () {
                         regionApi.setCountry(currentNegara);
-                        $('#prof-reg-provinsi').val(@json($user->provinsi));
-                        $('#prof-reg-kota').val(@json($user->kota));
-                        $('#prof-reg-kecamatan').val(@json($user->kecamatan));
+                        $('#prof-reg-provinsi').val(currentProvinsi);
+                        $('#prof-reg-kota').val(currentKota);
+                        $('#prof-reg-kecamatan').val(currentKecamatan);
                     }, 600);
                 }
                 editReady = true;
@@ -269,6 +288,7 @@
                 }
             });
         });
+
     </script>
 </body>
 </html>
