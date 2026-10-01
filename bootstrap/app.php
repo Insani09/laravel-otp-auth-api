@@ -1,10 +1,10 @@
 <?php
 
+use App\Http\Middleware\EnsureRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Request;
-use App\Http\Middleware\EnsureRole;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -18,6 +18,13 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->redirectGuestsTo('/');
         $middleware->redirectUsersTo('/dashboard');
+
+        // Keamanan sesi: jika hash kata sandi pengguna berubah (reset sandi,
+        // ubah sandi), semua sesi web LAIN yang masih memakai sandi lama
+        // otomatis dianggap tidak valid dan diminta login ulang. Untuk API
+        // stateful (SPA), tameng yang sama sudah menyala lewat pipeline
+        // Sanctum (config/sanctum.php → authenticate_session).
+        $middleware->authenticateSessions();
 
         $middleware->alias([
             'role' => EnsureRole::class,

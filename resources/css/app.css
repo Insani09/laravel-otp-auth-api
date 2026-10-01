@@ -7,3 +7,57 @@
     --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
 }
+
+/* ===== SweetAlert2 — tema gelap senada aplikasi ===== */
+.swal-popup {
+    background: #0f172a !important;
+    border: 1px solid #1e293b;
+    border-radius: 1rem;
+    color: #e2e8f0;
+    font-family: inherit;
+}
+.swal-title {
+    color: #f8fafc !important;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+.swal-text {
+    color: #94a3b8 !important;
+}
+.swal-btn {
+    border-radius: 0.75rem;
+    padding: 0.55rem 1.25rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin: 0 4px;
+}
+.swal-btn-confirm {
+    background: #2563eb;
+    border-color: #2563eb;
+    color: #fff;
+}
+.swal-btn-confirm:hover {
+    background: #3b82f6;
+}
+.swal-btn-cancel {
+    background: transparent;
+    border-color: #334155;
+    color: #cbd5e1;
+}
+.swal-btn-cancel:hover {
+    border-color: #64748b;
+    color: #fff;
+}
+.swal-btn-deny {
+    background: #dc2626;
+    border-color: #dc2626;
+    color: #fff;
+}
+.swal-toast {
+    background: #0f172a !important;
+    border: 1px solid #1e293b;
+    color: #e2e8f0;
+}

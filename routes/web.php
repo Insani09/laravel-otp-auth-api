@@ -1,17 +1,24 @@
 <?php
 
+use App\Http\Controllers\Api\AuthController;
+use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\AdminController;
-use App\Http\Controllers\Api\AuthController;
-use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\ProfileController;
 
-Route::middleware('guest')->group(function () {
-    Route::view('/', 'auth.login')->name('login');
-});
+/*
+|--------------------------------------------------------------------------
+| Web Routes — SPA only
+|--------------------------------------------------------------------------
+| Laravel tidak lagi menyajikan halaman Blade. Seluruh UI hidup di Vue SPA
+| (resources/js) yang dilayani lewat satu shell HTML di bawah. Web routes
+| hanya berisi:
+|   1. Endpoint auth berbasis session (dipakai form login/register SPA),
+|   2. Logout web + /api/me ringan untuk sinkronisasi sesi,
+|   3. Catch-all yang menyajikan shell SPA untuk semua path non-API.
+*/
 
-// Auth AJAX (session web) — Blade + jQuery
+// Auth berbasis session (SPA memanggil ini lewat axios dengan cookie XSRF).
 Route::post('/auth/register', [AuthController::class, 'register'])->name('auth.register');
 Route::post('/auth/login', [AuthController::class, 'loginPassword'])->name('auth.login');
 Route::post('/auth/otp/send', [AuthController::class, 'sendOtp'])->name('auth.otp.send');
@@ -19,26 +26,36 @@ Route::post('/auth/otp/verify', [AuthController::class, 'verifyOtp'])->name('aut
 Route::post('/auth/forgot-password', [AuthController::class, 'forgotPassword'])->name('auth.forgot');
 Route::post('/auth/reset-password', [AuthController::class, 'resetPassword'])->name('auth.reset');
 
-Route::middleware(['auth'])->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+Route::middleware('auth')->group(function () {
+    Route::post('/logout', function (Request $request) {
+        Auth::guard('web')->logout();
+        $request->session()->invalidate();
+        $request->session()->regenerateToken();
 
-    Route::get('/profile', [ProfileController::class, 'index'])->name('profile');
-    Route::post('/profile', [ProfileController::class, 'update'])->name('profile.update');
-
-    Route::post('/logout', function () {
-        Auth::logout();
-        request()->session()->invalidate();
-        request()->session()->regenerateToken();
-
-        return redirect()->route('login');
+        return response()->json(['message' => 'Logout berhasil.']);
     })->name('logout');
 
-    Route::middleware(['role:admin'])->prefix('admin')->name('admin.')->group(function () {
-        Route::get('/dashboard', [AdminController::class, 'dashboard'])->name('dashboard');
-        Route::get('/users', [AdminController::class, 'index'])->name('users.index');
-        Route::post('/users', [AdminController::class, 'store'])->name('users.store');
-        Route::get('/users/{user}', [AdminController::class, 'show'])->name('users.show');
-        Route::post('/users/{user}', [AdminController::class, 'update'])->name('users.update');
-        Route::delete('/users/{user}', [AdminController::class, 'destroy'])->name('users.destroy');
-    });
+    // Profil sesi ringan dari session web (tanpa token Sanctum).
+    Route::get('/api/me', function (Request $request) {
+        /** @var User $user */
+        $user = $request->user();
+
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+            ],
+        ]);
+    })->name('me');
 });
+
+/*
+| Catch-all SPA: semua path non-API menyajikan shell Vue. Negative lookahead
+| '(?!api)' mencegah catch-all menelan /api/* dari routes/api.php (web routes
+| terdaftar lebih dulu daripada api routes di Laravel).
+*/
+Route::get('/{any?}', function () {
+    return view('spa');
+})->where('any', '^(?!api).*$')->name('spa');

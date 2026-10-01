@@ -20,9 +20,13 @@ class User extends Authenticatable
         'avatar',
         'role',
         'negara',
+        'negara_kode',
         'provinsi',
+        'provinsi_id',
         'kota',
+        'kota_id',
         'kecamatan',
+        'kecamatan_id',
         'otp_code',
         'otp_expires_at',
     ];
@@ -60,9 +64,9 @@ class User extends Authenticatable
     public function avatarUrl(): string
     {
         if ($this->avatar) {
-            return asset('storage/' . $this->avatar);
+            return asset('storage/'.$this->avatar);
         }
 
-        return 'https://ui-avatars.com/api/?name=' . urlencode($this->name) . '&background=1e293b&color=60a5fa';
+        return 'https://ui-avatars.com/api/?name='.urlencode($this->name).'&background=1e293b&color=60a5fa';
     }
 }

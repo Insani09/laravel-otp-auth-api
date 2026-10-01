@@ -8,29 +8,16 @@ use Symfony\Component\HttpFoundation\Response;
 
 class EnsureRole
 {
-    /**
-     * @param  string  ...$roles
-     */
     public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         $user = $request->user();
 
-        if (!$user || !in_array($user->role, $roles, true)) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Anda tidak memiliki izin untuk mengakses sumber daya ini.',
-                ], 403);
-            }
-
-            if ($user && $user->role === 'admin') {
-                return redirect()->route('admin.dashboard');
-            }
-
-            if ($user) {
-                return redirect()->route('profile');
-            }
-
-            return redirect()->route('login');
+        if (! $user || ! in_array($user->role, $roles, true)) {
+            // Aplikasi murni SPA + API JSON: semua penolakan akses berbentuk
+            // JSON; guard vue-router yang mengarahkan ke halaman yang sesuai.
+            return response()->json([
+                'message' => 'Anda tidak memiliki izin untuk mengakses sumber daya ini.',
+            ], 403);
         }
 
         return $next($request);

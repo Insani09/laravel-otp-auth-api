@@ -33,12 +33,32 @@ class GeoNamesRegionTest extends TestCase
 
         $countriesResponse = $this->getJson('/api/geo/countries');
         $countriesResponse->assertStatus(200)
-            ->assertJsonPath('countries.0.countryName', 'Indonesia')
-            ->assertJsonPath('countries.0.countryCode', 'ID');
+            ->assertJsonPath('results.0.id', 'ID')
+            ->assertJsonPath('results.0.text', 'Indonesia');
 
         $subdivisionsResponse = $this->getJson('/api/geo/subdivisions/ID');
         $subdivisionsResponse->assertStatus(200)
-            ->assertJsonPath('subdivisions.0.name', 'Jawa Barat')
-            ->assertJsonPath('subdivisions.0.countryCode', 'ID');
+            ->assertJsonPath('results.0.id', '30')
+            ->assertJsonPath('results.0.text', 'Jawa Barat');
+    }
+
+    public function test_it_rejects_invalid_country_code(): void
+    {
+        $this->getJson('/api/geo/subdivisions/INVALID')
+            ->assertStatus(422);
+    }
+
+    public function test_it_falls_back_to_502_when_geonames_fails(): void
+    {
+        config(['services.geonames.username' => 'testing-username']);
+
+        Http::fake([
+            'https://secure.geonames.org/*' => Http::response([
+                'status' => ['message' => 'the daily limit of 30000 credits for xxx has been exceeded'],
+            ], 200),
+        ]);
+
+        $this->getJson('/api/geo/countries')
+            ->assertStatus(502);
     }
 }

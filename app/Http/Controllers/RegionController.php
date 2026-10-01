@@ -7,6 +7,7 @@ use App\Models\Province;
 use App\Models\Regency;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 
 class RegionController extends Controller
@@ -15,40 +16,39 @@ class RegionController extends Controller
      * Data administrasi Indonesia selalu berasal dari database IndoRegion.
      */
     public function getProvinces()
-{
-    return response()->json(
-        Province::query()
-            ->select(['id', 'name'])
-            ->distinct()
-            ->orderBy('name')
-            ->get()
-    );
-}
+    {
+        return response()->json(
+            Province::query()
+                ->select(['id', 'name'])
+                ->distinct()
+                ->orderBy('name')
+                ->get()
+        );
+    }
 
-public function getRegencies($provinceId)
-{
-    return response()->json(
-        Regency::query()
-            ->where('province_id', $provinceId)
-            ->select(['id', 'name'])
-            ->distinct()
-            ->orderBy('name')
-            ->get()
-    );
-}
+    public function getRegencies($provinceId)
+    {
+        return response()->json(
+            Regency::query()
+                ->where('province_id', $provinceId)
+                ->select(['id', 'name'])
+                ->distinct()
+                ->orderBy('name')
+                ->get()
+        );
+    }
 
-public function getDistricts($regencyId)
-{
-    return response()->json(
-        District::query()
-            ->where('regency_id', $regencyId)
-            ->select(['id', 'name'])
-            ->distinct()
-            ->orderBy('name')
-            ->get()
-    );
-}
-
+    public function getDistricts($regencyId)
+    {
+        return response()->json(
+            District::query()
+                ->where('regency_id', $regencyId)
+                ->select(['id', 'name'])
+                ->distinct()
+                ->orderBy('name')
+                ->get()
+        );
+    }
 
     /**
      * Global country list. Jangan panggil GeoNames langsung dari browser;
@@ -68,7 +68,7 @@ public function getDistricts($regencyId)
             ])
             ->filter(fn (array $country) => preg_match('/^[A-Z]{2}$/', $country['id']) && $country['text'] !== '')
             ->unique('id')
-            ->sortBy(fn (array $country) => $country['id'] === 'ID' ? '0-' . $country['text'] : '1-' . $country['text'], SORT_NATURAL | SORT_FLAG_CASE)
+            ->sortBy(fn (array $country) => $country['id'] === 'ID' ? '0-'.$country['text'] : '1-'.$country['text'], SORT_NATURAL | SORT_FLAG_CASE)
             ->values();
 
         return response()->json(['results' => $countries]);
@@ -152,6 +152,19 @@ public function getDistricts($regencyId)
             ], 503);
         }
 
+        // Cache hasil GeoNames per endpoint+parameter agar pengguna berikutnya
+        // tidak memicu request eksternal berulang (hemat kuota, respons lebih cepat).
+        $cacheKey = 'geonames:'.$endpoint.':'.md5(json_encode($query));
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) { 
+            return $cached;
+        }
+
+        // Saat cache kedaluwarsa tapi snapshot stale masih ada, sajikan stale
+        // alih-alih menampilkan error ke pengguna (graceful degradation).
+        $staleKey = $cacheKey.':stale';
+
         try {
             $response = Http::acceptJson()
                 ->timeout(10)
@@ -162,6 +175,11 @@ public function getDistricts($regencyId)
         } catch (ConnectionException $exception) {
             report($exception);
 
+            $stale = Cache::get($staleKey);
+            if ($stale !== null) {
+                return $stale;
+            }
+
             return response()->json([
                 'message' => 'Layanan wilayah global tidak dapat dihubungi.',
             ], 503);
@@ -169,11 +187,22 @@ public function getDistricts($regencyId)
 
         $payload = $response->json();
         if (! $response->successful() || data_get($payload, 'status.message')) {
+            $stale = Cache::get($staleKey);
+            if ($stale !== null) {
+                return $stale;
+            }
+
             return response()->json([
                 'message' => 'Layanan wilayah global gagal merespons.',
             ], 502);
         }
 
-        return is_array($payload) ? $payload : [];
+        $data = is_array($payload) ? $payload : [];
+
+        Cache::put($cacheKey, $data, now()->addHours(12));
+        // Snapshot stale disimpan lebih lama untuk fallback saat GeoNames down.
+        Cache::put($staleKey, $data, now()->addDays(7));
+
+        return $data;
     }
 }

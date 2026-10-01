@@ -11,6 +11,7 @@ class LoginOtp extends Model
     use HasFactory;
 
     protected $fillable = ['user_id', 'code', 'remember_me', 'expires_at', 'used_at'];
+
     protected $casts = [
         'remember_me' => 'boolean',
         'expires_at' => 'datetime',

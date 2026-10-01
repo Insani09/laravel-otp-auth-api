@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\RegionResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Storage;
@@ -11,17 +12,6 @@ use Illuminate\Validation\ValidationException;
 
 class AdminController extends Controller
 {
-    public function dashboard()
-    {
-        $stats = [
-            'total' => User::count(),
-            'admin' => User::where('role', 'admin')->count(),
-            'user' => User::where('role', 'user')->count(),
-        ];
-
-        return view('dashboard.admin', compact('stats'));
-    }
-
     public function index(Request $request)
     {
         $query = User::query()->latest();
@@ -55,8 +45,8 @@ class AdminController extends Controller
             'user' => (clone $statsQuery)->where('role', 'user')->count(),
         ];
 
-        $perPage = (int) $request->input('per_page', 10);
-        $perPage = in_array($perPage, [5, 10, 25, 50], true) ? $perPage : 10;
+        $perPage = (int) $request->input('per_page', 5);
+        $perPage = in_array($perPage, [5, 10, 25, 50], true) ? $perPage : 5;
 
         $users = $query->paginate($perPage)->withQueryString();
 
@@ -67,12 +57,16 @@ class AdminController extends Controller
                 'email' => $user->email,
                 'role' => $user->role,
                 'negara' => $user->negara,
+                'negara_kode' => $user->negara_kode,
                 'provinsi' => $user->provinsi,
+                'provinsi_id' => $user->provinsi_id,
                 'kota' => $user->kota,
+                'kota_id' => $user->kota_id,
                 'kecamatan' => $user->kecamatan,
+                'kecamatan_id' => $user->kecamatan_id,
                 'avatar' => $user->avatar,
                 'avatar_url' => $user->avatarUrl(),
-                'created_at' => optional($user->created_at)->toDateTimeString(),
+                'created_at' => optional($user->created_at)->toISOString(),
             ];
         });
 
@@ -82,7 +76,7 @@ class AdminController extends Controller
         ));
     }
 
-    public function store(Request $request)
+    public function store(Request $request, RegionResolver $resolver)
     {
         try {
             $validated = $request->validate([
@@ -99,9 +93,13 @@ class AdminController extends Controller
                 ],
                 'role' => ['required', Rule::in(['admin', 'user'])],
                 'negara' => 'nullable|string|max:100',
+                'negara_kode' => 'nullable|string|size:2',
                 'provinsi' => 'nullable|string|max:100',
+                'provinsi_id' => 'nullable|string|max:20',
                 'kota' => 'nullable|string|max:100',
+                'kota_id' => 'nullable|string|max:20',
                 'kecamatan' => 'nullable|string|max:100',
+                'kecamatan_id' => 'nullable|string|max:20',
                 'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             ], [
                 'name.required' => 'Nama lengkap wajib diisi.',
@@ -124,15 +122,41 @@ class AdminController extends Controller
             $validated['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
 
+        $region = $resolver->resolve(
+            $validated['negara_kode'] ?? null,
+            $validated['provinsi_id'] ?? null,
+            $validated['kota_id'] ?? null,
+            $validated['kecamatan_id'] ?? null,
+            $validated['negara'] ?? null,
+            $validated['provinsi'] ?? null,
+            $validated['kota'] ?? null,
+            $validated['kecamatan'] ?? null,
+        );
+
+        if ($region['errors'] !== []) {
+            throw ValidationException::withMessages($region['errors']);
+        }
+
+        if (filled($region['negara_kode']) && $region['negara_kode'] !== 'ID') {
+            $labels = $resolver->fillForeignLabels($region);
+            $region['negara'] = $region['negara'] ?? $labels['negara'];
+            $region['provinsi'] = $region['provinsi'] ?? $labels['provinsi'];
+            $region['kota'] = $region['kota'] ?? $labels['kota'];
+        }
+
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
             'password' => $validated['password'],
             'role' => $validated['role'],
-            'negara' => $validated['negara'] ?? null,
-            'provinsi' => $validated['provinsi'] ?? null,
-            'kota' => $validated['kota'] ?? null,
-            'kecamatan' => $validated['kecamatan'] ?? null,
+            'negara' => $region['negara'],
+            'negara_kode' => $region['negara_kode'],
+            'provinsi' => $region['provinsi'],
+            'provinsi_id' => $region['provinsi_id'],
+            'kota' => $region['kota'],
+            'kota_id' => $region['kota_id'],
+            'kecamatan' => $region['kecamatan'],
+            'kecamatan_id' => $region['kecamatan_id'],
             'avatar' => $validated['avatar'] ?? null,
         ]);
 
@@ -149,7 +173,7 @@ class AdminController extends Controller
         ]);
     }
 
-    public function update(Request $request, User $user)
+    public function update(Request $request, User $user, RegionResolver $resolver)
     {
         try {
             $validated = $request->validate([
@@ -172,9 +196,13 @@ class AdminController extends Controller
                 ],
                 'role' => ['required', Rule::in(['admin', 'user'])],
                 'negara' => 'nullable|string|max:100',
+                'negara_kode' => 'nullable|string|size:2',
                 'provinsi' => 'nullable|string|max:100',
+                'provinsi_id' => 'nullable|string|max:20',
                 'kota' => 'nullable|string|max:100',
+                'kota_id' => 'nullable|string|max:20',
                 'kecamatan' => 'nullable|string|max:100',
+                'kecamatan_id' => 'nullable|string|max:20',
                 'avatar' => 'nullable|image|mimes:jpg,jpeg,png,webp|max:2048',
             ], [
                 'name.required' => 'Nama lengkap wajib diisi.',
@@ -199,17 +227,46 @@ class AdminController extends Controller
             $validated['avatar'] = $request->file('avatar')->store('avatars', 'public');
         }
 
+        // Fallback ke wilayah tersimpan — mode-aware: bila form memindahkan
+        // user ke mode lain (Indonesia ↔ luar negeri), sisi lama dibuang agar
+        // tidak tersimpan data campuran.
+        $region = $resolver->resolveForUpdate(
+            $request->only([
+                'negara', 'negara_kode', 'provinsi', 'provinsi_id',
+                'kota', 'kota_id', 'kecamatan', 'kecamatan_id',
+            ]),
+            $user->only([
+                'negara', 'negara_kode', 'provinsi', 'provinsi_id',
+                'kota', 'kota_id', 'kecamatan', 'kecamatan_id',
+            ]),
+        );
+
+        if ($region['errors'] !== []) {
+            throw ValidationException::withMessages($region['errors']);
+        }
+
+        if (filled($region['negara_kode']) && $region['negara_kode'] !== 'ID') {
+            $labels = $resolver->fillForeignLabels($region);
+            $region['negara'] = $region['negara'] ?? $labels['negara'];
+            $region['provinsi'] = $region['provinsi'] ?? $labels['provinsi'];
+            $region['kota'] = $region['kota'] ?? $labels['kota'];
+        }
+
         $data = [
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role' => $validated['role'],
-            'negara' => $validated['negara'] ?? null,
-            'provinsi' => $validated['provinsi'] ?? null,
-            'kota' => $validated['kota'] ?? null,
-            'kecamatan' => $validated['kecamatan'] ?? null,
+            'negara' => $region['negara'],
+            'negara_kode' => $region['negara_kode'],
+            'provinsi' => $region['provinsi'],
+            'provinsi_id' => $region['provinsi_id'],
+            'kota' => $region['kota'],
+            'kota_id' => $region['kota_id'],
+            'kecamatan' => $region['kecamatan'],
+            'kecamatan_id' => $region['kecamatan_id'],
         ];
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $data['password'] = $validated['password'];
         }
 
@@ -253,9 +310,13 @@ class AdminController extends Controller
             'email' => $user->email,
             'role' => $user->role,
             'negara' => $user->negara,
+            'negara_kode' => $user->negara_kode,
             'provinsi' => $user->provinsi,
+            'provinsi_id' => $user->provinsi_id,
             'kota' => $user->kota,
+            'kota_id' => $user->kota_id,
             'kecamatan' => $user->kecamatan,
+            'kecamatan_id' => $user->kecamatan_id,
             'avatar' => $user->avatar,
             'avatar_url' => $user->avatarUrl(),
             'created_at' => optional($user->created_at)->toDateTimeString(),

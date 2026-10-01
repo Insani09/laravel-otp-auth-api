@@ -2,7 +2,6 @@
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
@@ -10,15 +9,19 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-            if (!Schema::hasColumn('users', 'otp_code')) {
+            if (! Schema::hasColumn('users', 'otp_code')) {
                 $table->string('otp_code', 10)->nullable()->after('kecamatan');
             }
-            if (!Schema::hasColumn('users', 'otp_expires_at')) {
+            if (! Schema::hasColumn('users', 'otp_expires_at')) {
                 $table->timestamp('otp_expires_at')->nullable()->after('otp_code');
             }
         });
 
-        DB::statement('ALTER TABLE users MODIFY password VARCHAR(255) NULL');
+        // ->change() native Laravel mendukung MySQL, Postgres, dan SQLite.
+        // Sebelumnya memakai "ALTER TABLE ... MODIFY" yang hanya valid di MySQL.
+        Schema::table('users', function (Blueprint $table) {
+            $table->string('password')->nullable()->change();
+        });
     }
 
     public function down(): void
@@ -36,6 +39,8 @@ return new class extends Migration
             }
         });
 
-        DB::statement('ALTER TABLE users MODIFY password VARCHAR(255) NOT NULL');
+        Schema::table('users', function (Blueprint $table) {
+            $table->string('password')->change();
+        });
     }
 };

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Mail\OtpMail;
 use App\Models\User;
+use App\Services\RegionResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
@@ -12,13 +13,15 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
     // Masa berlaku kode OTP, dalam menit.
     private const OTP_TTL_MINUTES = 1;
-    private const RESET_OTP_TTL_MINUTES = 1;
+
+    private const RESET_OTP_TTL_MINUTES = 5;
 
     private const PASSWORD_RULES = [
         'required',
@@ -38,15 +41,24 @@ class AuthController extends Controller
         'password.confirmed' => 'Konfirmasi kata sandi tidak cocok. Silakan periksa kembali.',
     ];
 
-    public function register(Request $request)
+    public function register(Request $request, RegionResolver $resolver)
     {
+        // Otomatis set negara ke Indonesia bila form tidak mengirim kode maupun label.
+        if (! $request->filled('negara_kode') && ! $request->filled('negara')) {
+            $request->merge(['negara_kode' => 'ID']);
+        }
+
         try {
             $validated = $request->validate([
                 'name' => 'required|string|max:255',
-                'negara' => 'required|string|max:100',
+                'negara' => 'nullable|string|max:100',
+                'negara_kode' => 'nullable|string|size:2',
                 'provinsi' => 'nullable|string|max:100',
+                'provinsi_id' => 'nullable|string|max:20',
                 'kota' => 'nullable|string|max:100',
+                'kota_id' => 'nullable|string|max:20',
                 'kecamatan' => 'nullable|string|max:100',
+                'kecamatan_id' => 'nullable|string|max:20',
                 'email' => 'required|string|email|max:255|unique:users,email',
                 'password' => self::PASSWORD_RULES,
             ], array_merge([
@@ -60,12 +72,38 @@ class AuthController extends Controller
             throw $exception;
         }
 
+        $region = $resolver->resolve(
+            $validated['negara_kode'] ?? null,
+            $validated['provinsi_id'] ?? null,
+            $validated['kota_id'] ?? null,
+            $validated['kecamatan_id'] ?? null,
+            $validated['negara'] ?? null,
+            $validated['provinsi'] ?? null,
+            $validated['kota'] ?? null,
+            $validated['kecamatan'] ?? null,
+        );
+
+        if ($region['errors'] !== []) {
+            throw ValidationException::withMessages($region['errors']);
+        }
+
+        if (filled($region['negara_kode']) && $region['negara_kode'] !== 'ID') {
+            $labels = $resolver->fillForeignLabels($region);
+            $region['negara'] = $labels['negara'] ?? $region['negara'];
+            $region['provinsi'] = $region['provinsi'] ?? $labels['provinsi'];
+            $region['kota'] = $region['kota'] ?? $labels['kota'];
+        }
+
         $user = User::create([
             'name' => $validated['name'],
-            'negara' => $validated['negara'],
-            'provinsi' => $validated['provinsi'] ?? null,
-            'kota' => $validated['kota'] ?? null,
-            'kecamatan' => $validated['kecamatan'] ?? null,
+            'negara' => $region['negara'],
+            'negara_kode' => $region['negara_kode'],
+            'provinsi' => $region['provinsi'],
+            'provinsi_id' => $region['provinsi_id'],
+            'kota' => $region['kota'],
+            'kota_id' => $region['kota_id'],
+            'kecamatan' => $region['kecamatan'],
+            'kecamatan_id' => $region['kecamatan_id'],
             'email' => $validated['email'],
             'password' => $validated['password'],
             'role' => 'user',
@@ -96,7 +134,7 @@ class AuthController extends Controller
             'password.required' => 'Kata sandi wajib diisi.',
         ]);
 
-        $throttleKey = 'login-password:' . $request->ip() . '|' . strtolower($request->email);
+        $throttleKey = 'login-password:'.$request->ip().'|'.strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
                 'message' => 'Terlalu banyak percobaan masuk. Silakan coba lagi nanti.',
@@ -118,6 +156,18 @@ class AuthController extends Controller
         Auth::login($user, $request->boolean('remember'));
         if ($request->hasSession()) {
             $request->session()->regenerate();
+
+            // Cap hash sandi ke sesi SEKARANG (bukan menunggu request
+            // ter-autentikasi pertama). Tanpa ini, SPA yang tidak pernah
+            // me-reload halaman meninggalkan sesi tanpa cap — dan begitu
+            // sandi direset, middleware justru MENGECAP sesi penyusup dengan
+            // hash baru (dia "diselamatkan" alih-alih ditendang).
+            $request->session()->put(
+                'password_hash_web',
+                method_exists($user, 'hashPasswordForCookie')
+                    ? $user->hashPasswordForCookie($user->getAuthPassword())
+                    : $user->getAuthPassword()
+            );
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -126,8 +176,8 @@ class AuthController extends Controller
             'message' => 'Login berhasil.',
             'token' => $token,
             'redirect' => $user->isAdmin()
-                ? route('admin.dashboard')
-                : route('dashboard'),
+                ? '/admin'
+                : '/dashboard',
             'user' => $user->only(['id', 'name', 'email', 'role']),
         ]);
     }
@@ -144,14 +194,14 @@ class AuthController extends Controller
             'email.email' => 'Alamat email wajib diisi dengan format yang benar.',
         ]);
 
-        $throttleKey = 'otp-send:' . $request->ip() . '|' . strtolower($request->email);
+        $throttleKey = 'otp-send:'.$request->ip().'|'.strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
                 'message' => 'Terlalu banyak permintaan OTP. Silakan coba lagi nanti.',
             ], 429);
         }
 
-        RateLimiter::hit($throttleKey, 60);
+        RateLimiter::hit($throttleKey, 10);
 
         $user = User::where('email', $request->email)->first();
         if (! $user) {
@@ -189,8 +239,9 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Kode OTP telah dikirim ke email Anda. Berlaku selama '
-                . self::OTP_TTL_MINUTES
-                . ' menit.',
+                .self::OTP_TTL_MINUTES
+                .' menit.',
+            'expires_in' => self::OTP_TTL_MINUTES * 60,
         ]);
     }
 
@@ -210,7 +261,7 @@ class AuthController extends Controller
             'otp.digits' => 'Kode OTP harus berupa 6 digit angka.',
         ]);
 
-        $throttleKey = 'otp-verify:' . strtolower($request->email);
+        $throttleKey = 'otp-verify:'.strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
                 'message' => 'Terlalu banyak percobaan OTP. Silakan coba lagi nanti.',
@@ -249,6 +300,15 @@ class AuthController extends Controller
         Auth::login($user, $request->boolean('remember'));
         if ($request->hasSession()) {
             $request->session()->regenerate();
+
+            // Cap hash sandi saat login OTP juga — konsisten dengan
+            // loginPassword(). Lihat komentar di sana untuk alasannya.
+            $request->session()->put(
+                'password_hash_web',
+                method_exists($user, 'hashPasswordForCookie')
+                    ? $user->hashPasswordForCookie($user->getAuthPassword())
+                    : $user->getAuthPassword()
+            );
         }
 
         $token = $user->createToken('auth_token')->plainTextToken;
@@ -257,8 +317,8 @@ class AuthController extends Controller
             'message' => 'Login berhasil.',
             'token' => $token,
             'redirect' => $user->isAdmin()
-                ? route('admin.dashboard')
-                : route('dashboard'),
+                ? '/admin'
+                : '/dashboard',
             'user' => $user->only(['id', 'name', 'email', 'role']),
         ]);
     }
@@ -276,7 +336,7 @@ class AuthController extends Controller
             'email.exists' => 'Email tidak ditemukan di sistem kami.',
         ]);
 
-        $throttleKey = 'otp-reset-request:' . strtolower($request->email);
+        $throttleKey = 'otp-reset-request:'.strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 3)) {
             return response()->json([
                 'message' => 'Terlalu banyak permintaan reset kata sandi. Silakan coba lagi nanti.',
@@ -286,11 +346,11 @@ class AuthController extends Controller
         // Pembatasan request reset tetap 15 menit; ini berbeda dari masa berlaku OTP.
         RateLimiter::hit($throttleKey, 900);
 
-        Cache::forget('otp_reset_' . $request->email);
+        Cache::forget('otp_reset_'.$request->email);
 
         $otp = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
         Cache::put(
-            'otp_reset_' . $request->email,
+            'otp_reset_'.$request->email,
             hash_hmac('sha256', $otp, config('app.key')),
             now()->addMinutes(self::RESET_OTP_TTL_MINUTES)
         );
@@ -300,7 +360,7 @@ class AuthController extends Controller
                 new OtpMail($otp, self::RESET_OTP_TTL_MINUTES)
             );
         } catch (\Throwable $exception) {
-            Cache::forget('otp_reset_' . $request->email);
+            Cache::forget('otp_reset_'.$request->email);
 
             Log::error('Gagal mengirim OTP reset password.', [
                 'email' => $request->email,
@@ -314,9 +374,50 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'Kode OTP untuk reset kata sandi telah dikirim ke email Anda. Berlaku selama '
-                . self::RESET_OTP_TTL_MINUTES
-                . ' menit.',
+                .self::RESET_OTP_TTL_MINUTES
+                .' menit.',
+            'expires_in' => self::RESET_OTP_TTL_MINUTES * 60,
         ]);
+    }
+
+    /**
+     * Verifikasi kode OTP reset TANPA mengubah apa pun. Kode tidak dikonsumsi
+     * di sini — tetap divalidasi ulang oleh resetPassword() saat penyimpanan,
+     * jadi kode tetap hanya bisa dipakai untuk satu perubahan sandi.
+     */
+    public function verifyResetOtp(Request $request)
+    {
+        $request->validate([
+            'email' => 'required|email|exists:users,email',
+            'otp' => 'required|numeric|digits:6',
+        ], [
+            'email.required' => 'Alamat email wajib diisi dengan format yang benar.',
+            'email.exists' => 'Email tidak ditemukan di sistem kami.',
+            'otp.required' => 'Kode OTP wajib diisi.',
+            'otp.digits' => 'Kode OTP harus berupa 6 digit angka.',
+        ]);
+
+        $throttleKey = 'otp-reset-verify:'.strtolower($request->email);
+        if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
+            return response()->json([
+                'message' => 'Terlalu banyak percobaan OTP. Silakan coba lagi nanti.',
+            ], 429);
+        }
+
+        $cachedHash = Cache::get('otp_reset_'.$request->email);
+        $inputHash = hash_hmac('sha256', (string) $request->otp, config('app.key'));
+
+        if (! $cachedHash || ! hash_equals($cachedHash, $inputHash)) {
+            RateLimiter::hit($throttleKey, 900);
+
+            return response()->json([
+                'message' => 'Kode OTP tidak valid atau sudah kedaluwarsa.',
+            ], 400);
+        }
+
+        RateLimiter::clear($throttleKey);
+
+        return response()->json(['message' => 'Kode OTP terverifikasi. Silakan buat kata sandi baru.']);
     }
 
     public function resetPassword(Request $request)
@@ -332,14 +433,14 @@ class AuthController extends Controller
             'otp.digits' => 'Kode OTP harus berupa 6 digit angka.',
         ], self::PASSWORD_MESSAGES));
 
-        $throttleKey = 'otp-reset-verify:' . strtolower($request->email);
+        $throttleKey = 'otp-reset-verify:'.strtolower($request->email);
         if (RateLimiter::tooManyAttempts($throttleKey, 5)) {
             return response()->json([
                 'message' => 'Terlalu banyak percobaan OTP. Silakan coba lagi nanti.',
             ], 429);
         }
 
-        $cachedHash = Cache::get('otp_reset_' . $request->email);
+        $cachedHash = Cache::get('otp_reset_'.$request->email);
         $inputHash = hash_hmac('sha256', (string) $request->otp, config('app.key'));
 
         if (! $cachedHash || ! hash_equals($cachedHash, $inputHash)) {
@@ -356,8 +457,15 @@ class AuthController extends Controller
         $user->password = $request->password;
         $user->save();
 
-        Cache::forget('otp_reset_' . $request->email);
+        Cache::forget('otp_reset_'.$request->email);
         $user->tokens()->delete();
+
+        // Reset sandi juga mencabut cookie "remember me" (remember_token):
+        // tanpa ini, sesi lama yang terselamatkan cookie remember-me masih
+        // bisa login ulang otomatis meski middleware sesi sudah menendang
+        // sesi biasa. Bagian dari pembuktian: siapa pun yang memegang sesi
+        // lama tidak punya jalan untuk bertahan setelah sandi diganti.
+        $user->forceFill(['remember_token' => Str::random(60)])->save();
 
         return response()->json([
             'message' => 'Kata sandi berhasil diubah. Silakan masuk kembali.',
@@ -374,13 +482,17 @@ class AuthController extends Controller
         }
 
         Auth::guard('web')->logout();
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+
+        // Route /api tidak membawa session store — invalidasi hanya bila ada.
+        if ($request->hasSession()) {
+            $request->session()->invalidate();
+            $request->session()->regenerateToken();
+        }
 
         if ($request->expectsJson()) {
             return response()->json(['message' => 'Logout berhasil.']);
         }
 
-        return redirect()->route('login');
+        return response()->json(['message' => 'Logout berhasil.']);
     }
 }
